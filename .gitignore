@@ -36,16 +36,16 @@ yarn-error.log*
 
 # generated listing uploads
 /server/images
-/server/assets/images/hero_.jpg
-railway.toml
-R3-INTERVIEW.md
-Dockerfile
-/.github
+
 # typescript
 *.tsbuildinfo
 /.githooks
 /.vscode
 
+Dockerfile
+R3-INTERVIEW.md
+railway.toml
+server/assets/images/hero_.jpg
 attach.js
 INTERVIEW.md
 
