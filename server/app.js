@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
@@ -11,6 +13,11 @@ const activityRoutes = require('./routes/activity');
 const vaultRoutes = require('./routes/vault');
 const imageRoutes = require('./routes/images');
 const opsRoutes = require('./routes/ops');
+const searchRoutes = require('./routes/searches');
+const governanceRoutes = require('./routes/governance');
+const marketRoutes = require('./routes/market');
+const adminRoutes = require('./routes/admin');
+const lendingRoutes = require('./routes/lending');
 const opsController = require('./controllers/opsController');
 const readiness = require('./services/readiness');
 const persistence = require('./mock/persistence');
@@ -35,8 +42,13 @@ app.use(async (_req, _res, next) => {
 // request stream, which is empty in serverless environments, so it would
 // otherwise return 400 on every POST that carries a body.
 app.use((req, res, next) => {
-  if (req.body && typeof req.body === 'object') return next();
-  return express.json({ limit: '3mb' })(req, res, next);
+  if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return next();
+  return express.json({
+    limit: '3mb',
+    verify(incoming, _res, buf) {
+      incoming.rawBody = buf.toString('utf8');
+    },
+  })(req, res, next);
 });
 
 app.get('/health', opsController.health);
@@ -67,6 +79,21 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/vault', vaultRoutes);
 app.use('/api/images', imageRoutes);
 app.use('/api/ops', opsRoutes);
+app.use('/api/searches', searchRoutes);
+app.use('/api/governance', governanceRoutes);
+app.use('/api/market', marketRoutes);
+app.use('/api/lend', lendingRoutes);
+app.use('/api/admin', adminRoutes);
+
+const distDir = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(path.join(distDir, 'index.html'))) {
+  app.use(express.static(distDir, { index: false }));
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.startsWith('/api') || req.path === '/health' || req.path === '/ready') return next();
+    res.sendFile(path.join(distDir, 'index.html'), (err) => (err ? next(err) : undefined));
+  });
+}
 
 // Start the HTTP listener only when run directly (node server/app.js).
 // When imported (e.g. by a Netlify Function via serverless-http) the app is
@@ -78,7 +105,7 @@ if (require.main === module) {
     for (const line of blockers) console.error(`- ${line}`);
     process.exit(1);
   }
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server listening on port ${PORT}`);
   });
 }

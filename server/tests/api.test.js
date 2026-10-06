@@ -61,12 +61,40 @@ test('issues a JWT for the seed user', async () => {
 test('rejects login from an IP that is not on the allowlist', async () => {
   const { status, data } = await request('/api/auth/login', {
     method: 'POST',
-    body: { email: 'test1@gmail.com', password: 'pass1234' },
+    body: { email: 'visitor@example.com', password: 'pass1234' },
     forwardedFor: '203.0.113.50',
   });
   assert.equal(status, 403);
   assert.match(data.error || '', /not allowed to log in/i);
   assert.equal(data.token, undefined);
+  const settings = await request('/api/settings');
+  const attempt = (settings.data.loginAttempts || []).find((row) => row.email === 'visitor@example.com');
+  assert.ok(attempt);
+  assert.equal(attempt.ip, '203.0.113.50');
+  assert.equal(attempt.result, 'blocked');
+});
+
+test('keeps only the last 10 sign-in addresses', async () => {
+  for (let i = 1; i <= 12; i += 1) {
+    await request('/api/auth/login', {
+      method: 'POST',
+      body: { email: `n${i}@example.com`, password: 'x' },
+      forwardedFor: `203.0.113.${i}`,
+    });
+  }
+  await request('/api/auth/login', {
+    method: 'POST',
+    body: { email: 'again@example.com', password: 'x' },
+    forwardedFor: '203.0.113.12',
+  });
+  const settings = await request('/api/settings');
+  const rows = settings.data.loginAttempts || [];
+  assert.equal(rows.length, 10);
+  assert.equal(rows[0].ip, '203.0.113.12');
+  assert.equal(rows[0].email, 'again@example.com');
+  assert.equal(rows.filter((row) => row.ip === '203.0.113.12').length, 1);
+  assert.equal(rows.some((row) => row.ip === '203.0.113.1'), false);
+  assert.equal(rows.some((row) => row.ip === '203.0.113.2'), false);
 });
 
 test('allows login from an IP listed in ALLOWED_LOGIN_IPS', async () => {
@@ -270,6 +298,13 @@ test('admin can create, patch, and delete a property', async () => {
       unitMix: '1× 2,000 sq ft retail',
       bedrooms: 2,
       bathrooms: 1,
+      interiors: [
+        {
+          name: 'Living room',
+          detail: 'Oak floors and a south window.',
+          imageUrl: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1200&q=80',
+        },
+      ],
       comps: [{ address: '100 Congress Ave, Austin, TX', soldDate: '2026-01-15', priceUsd: 490000, sqft: 1900, note: 'Illustrative' }],
       documents: [{ name: 'PPM', url: 'https://example.com/ppm.pdf' }],
     },
@@ -282,6 +317,8 @@ test('admin can create, patch, and delete a property', async () => {
   assert.equal(created.data.property.unitMix, '1× 2,000 sq ft retail');
   assert.equal(created.data.property.bedrooms, 2);
   assert.equal(created.data.property.bathrooms, 1);
+  assert.equal(created.data.property.interiors[0].name, 'Living room');
+  assert.match(created.data.property.interiors[0].detail, /Oak floors/);
   assert.equal(created.data.property.comps.length, 1);
   const id = created.data.property.id;
 
@@ -298,6 +335,13 @@ test('admin can create, patch, and delete a property', async () => {
       lat: 30.27,
       lng: -97.74,
       comps: [{ address: '200 Congress Ave, Austin, TX', soldDate: '2026-04-01', priceUsd: 505000, sqft: 1950 }],
+      interiors: [
+        {
+          name: 'Kitchen',
+          detail: 'Stone counters.',
+          imageUrl: 'https://images.unsplash.com/photo-1556912173-46c336c7fd55?auto=format&fit=crop&w=1200&q=80',
+        },
+      ],
     },
   });
   assert.equal(patched.status, 200);
@@ -307,6 +351,7 @@ test('admin can create, patch, and delete a property', async () => {
   assert.equal(patched.data.property.appraisals[0].valueUsd, 520000);
   assert.equal(patched.data.property.lat, 30.27);
   assert.equal(patched.data.property.comps[0].priceUsd, 505000);
+  assert.equal(patched.data.property.interiors[0].name, 'Kitchen');
 
   const removed = await request(`/api/properties/${id}`, {
     method: 'DELETE',
